@@ -5,6 +5,13 @@ from dotenv import load_dotenv
 import pandas as pd
 from bs4 import BeautifulSoup
 import time
+import logging
+from typing import Optional, Dict, Any
+import json
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env
 load_dotenv()
@@ -13,6 +20,7 @@ class EconomicCalendar:
     def __init__(self):
         """
         Initialize EconomicCalendar for web scraping Investing.com
+        with DeepSeek sentiment analysis and local fallbacks.
         """
         self.base_url = "https://www.investing.com/economic-calendar/"
         self.headers = {
@@ -22,10 +30,160 @@ class EconomicCalendar:
         # Telegram bot configuration
         self.telegram_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        
+        # DeepSeek API configuration
+        self.deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
+        
+        # Initialize DeepSeek client
+        self.deepseek_client = None
+        self._init_deepseek_client()
+        
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
+        
+        # Initialize fallback sentiment analyzer
+        self.fallback_sentiment = self._init_fallback_sentiment()
+
+    def _init_deepseek_client(self):
+        """Initialize DeepSeek API client."""
+        try:
+            if self.deepseek_api_key:
+                from openai import OpenAI
+                self.deepseek_client = OpenAI(
+                    api_key=self.deepseek_api_key,
+                    base_url="https://api.deepseek.com"
+                )
+                logger.info("✅ DeepSeek client initialized")
+        except ImportError:
+            logger.warning("⚠️ OpenAI SDK not installed. Run: pip install openai")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
+
+    def _init_fallback_sentiment(self):
+        """Initialize fallback sentiment analysis using TextBlob or VADER."""
+        try:
+            from textblob import TextBlob
+            logger.info("✅ TextBlob initialized for fallback sentiment analysis")
+            return "textblob"
+        except ImportError:
+            try:
+                from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+                logger.info("✅ VADER initialized for fallback sentiment analysis")
+                return "vader"
+            except ImportError:
+                logger.warning("⚠️ No fallback sentiment analysis available. Install textblob or vaderSentiment.")
+                return None
+
+    def _retry_with_backoff(self, func, *args, **kwargs):
+        """Implement exponential backoff retry logic."""
+        for attempt in range(self.max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    logger.error(f"❌ Final attempt failed: {e}")
+                    raise e
+                
+                wait_time = self.retry_delay * (2 ** attempt)
+                logger.warning(f"⚠️ Attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+
+    def _get_sentiment_deepseek(self, text: str) -> Dict[str, Any]:
+        """Get sentiment using DeepSeek API with OpenAI SDK."""
+        if not self.deepseek_client:
+            raise ValueError("DeepSeek client not initialized")
+        
+        try:
+            response = self.deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a financial sentiment analyzer. Analyze the sentiment of economic news and return only a JSON object with 'sentiment' (positive/negative/neutral) and 'score' (float between -1 and 1)."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Analyze sentiment: {text}"
+                    }
+                ],
+                max_tokens=100,
+                temperature=0.1,
+                stream=False
+            )
+            
+            content = response.choices[0].message.content
+            sentiment_data = json.loads(content)
+            return sentiment_data
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"⚠️ Failed to parse DeepSeek response: {e}")
+            return {"sentiment": "neutral", "score": 0.0}
+        except Exception as e:
+            logger.error(f"❌ DeepSeek API error: {e}")
+            raise e
+
+    def _get_sentiment_fallback(self, text: str) -> Dict[str, Any]:
+        """Get sentiment using fallback methods."""
+        if self.fallback_sentiment == "textblob":
+            from textblob import TextBlob
+            blob = TextBlob(text)
+            polarity = blob.sentiment.polarity
+            
+            if polarity > 0.1:
+                sentiment = "positive"
+            elif polarity < -0.1:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+                
+            return {"sentiment": sentiment, "score": round(polarity, 2)}
+            
+        elif self.fallback_sentiment == "vader":
+            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+            analyzer = SentimentIntensityAnalyzer()
+            scores = analyzer.polarity_scores(text)
+            compound = scores['compound']
+            
+            if compound > 0.05:
+                sentiment = "positive"
+            elif compound < -0.05:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+                
+            return {"sentiment": sentiment, "score": round(compound, 2)}
+        
+        return {"sentiment": "neutral", "score": 0.0}
+
+    def get_event_sentiment(self, event_text: str) -> Dict[str, Any]:
+        """
+        Get sentiment for economic event using DeepSeek API with local fallbacks.
+        """
+        if not event_text or event_text.strip() == "":
+            return {"sentiment": "neutral", "score": 0.0}
+        
+        # Try DeepSeek API first
+        if self.deepseek_client:
+            try:
+                result = self._retry_with_backoff(self._get_sentiment_deepseek, event_text)
+                logger.debug(f"✅ DeepSeek sentiment for '{event_text}': {result}")
+                return result
+            except Exception as e:
+                logger.warning(f"⚠️ DeepSeek API failed: {e}. Using local fallback...")
+        
+        # Use fallback sentiment analysis
+        try:
+            result = self._get_sentiment_fallback(event_text)
+            logger.debug(f"✅ Fallback sentiment for '{event_text}': {result}")
+            return result
+        except Exception as e:
+            logger.error(f"❌ All sentiment analysis methods failed: {e}")
+            return {"sentiment": "neutral", "score": 0.0}
 
     def get_economic_events(self, start_date=None, end_date=None):
         """
-        Scrape economic events from Investing.com
+        Scrape economic events from Investing.com and analyze sentiment.
         """
         try:
             if not start_date:
@@ -93,6 +251,9 @@ class EconomicCalendar:
                     previous_cell = row.find('td', class_='prev') or row.find('td', class_='previous')
                     previous = previous_cell.text.strip() if previous_cell else 'N/A'
                     
+                    # Sentiment analysis with error handling
+                    sentiment_result = self.get_event_sentiment(event_name)
+                    
                     formatted_event = {
                         'date': start_date,
                         'time': event_time,
@@ -102,18 +263,20 @@ class EconomicCalendar:
                         'actual': actual,
                         'forecast': forecast,
                         'previous': previous,
-                        'change': 'N/A'
+                        'change': 'N/A',
+                        'sentiment': sentiment_result.get('sentiment', 'neutral'),
+                        'sentiment_score': sentiment_result.get('score', 0.0)
                     }
                     events.append(formatted_event)
                     
                 except Exception as e:
-                    print(f"Error parsing row: {e}")
+                    logger.debug(f"Error parsing row: {e}")
                     continue
             
             return events
             
         except Exception as e:
-            print(f"Error scraping economic events: {e}")
+            logger.error(f"Error scraping economic events: {e}")
             return []
 
     def get_high_impact_events(self, start_date=None, end_date=None):
@@ -144,9 +307,14 @@ class EconomicCalendar:
         if not events:
             return pd.DataFrame()
 
-        columns = ['date', 'time', 'country', 'event', 'actual', 'forecast', 'previous', 'change', 'impact']
+        columns = ['date', 'time', 'country', 'event', 'actual', 'forecast', 'previous', 'change', 'impact', 'sentiment', 'sentiment_score']
         df = pd.DataFrame(events)
-        df = df[columns]
+        # Ensure all columns exist, fill with N/A if not
+        for col in columns:
+            if col not in df.columns:
+                df[col] = 'N/A'
+        df = df[columns] # Reorder and select
+        df['sentiment_score'] = pd.to_numeric(df['sentiment_score'], errors='coerce').fillna(0.0).round(2)
         df = df.sort_values(['date', 'time', 'country'])
         return df
 
@@ -177,25 +345,42 @@ class EconomicCalendar:
 
     def format_telegram_message(self, events, title="📊 Economic Calendar"):
         """
-        Format events data for Telegram message
+        Format events data for Telegram message, including sentiment.
         """
         if not events:
             return f"{title}\n\n⚠️ ไม่มีอีเวนต์เศรษฐกิจในช่วงนี้"
         
         message = f"<b>{title}</b>\n\n"
         
-        for event in events[:20]:  # Limit to 20 events to avoid message length limits
+        for event in events[:20]:  # Limit to 20 events
             impact_emoji = "🔴" if event['impact'] == 'High' else "🟡" if event['impact'] == 'Medium' else "🟢"
             
             message += f"{impact_emoji} <b>{event['time']}</b> | {event['country']}\n"
             message += f"📈 {event['event']}\n"
+
+            # Add sentiment display
+            sentiment = event.get('sentiment', 'neutral')
+            sentiment_score = event.get('sentiment_score', 0.0)
             
-            if event['actual'] != 'N/A':
-                message += f"💡 Actual: {event['actual']}"
-            if event['forecast'] != 'N/A':
-                message += f" | Forecast: {event['forecast']}"
-            if event['previous'] != 'N/A':
-                message += f" | Previous: {event['previous']}"
+            if sentiment == 'positive':
+                sentiment_emoji = "😊"
+            elif sentiment == 'negative':
+                sentiment_emoji = "😰"
+            else:
+                sentiment_emoji = "😐"
+            
+            message += f"{sentiment_emoji} Sentiment: {sentiment.title()} ({sentiment_score})\n"
+            
+            details = []
+            if event['actual'] != 'N/A' and event['actual'] != '':
+                details.append(f"Actual: {event['actual']}")
+            if event['forecast'] != 'N/A' and event['forecast'] != '':
+                details.append(f"Forecast: {event['forecast']}")
+            if event['previous'] != 'N/A' and event['previous'] != '':
+                details.append(f"Previous: {event['previous']}")
+            
+            if details:
+                message += f"💡 {' | '.join(details)}"
             
             message += "\n\n"
         
@@ -206,10 +391,11 @@ class EconomicCalendar:
 
     def send_daily_summary_to_telegram(self, date=None):
         """
-        Send daily economic calendar summary to Telegram
+        Send daily economic calendar summary to Telegram, including sentiment counts.
         """
-        print(f"🔍 Debug: Telegram Token exists: {'✅' if self.telegram_token else '❌'}")
-        print(f"🔍 Debug: Chat ID exists: {'✅' if self.telegram_chat_id else '❌'}")
+        logger.info(f"🔍 Debug: Telegram Token exists: {'✅' if self.telegram_token else '❌'}")
+        logger.info(f"🔍 Debug: Chat ID exists: {'✅' if self.telegram_chat_id else '❌'}")
+        logger.info(f"🔍 Debug: DeepSeek API: {'✅' if self.deepseek_client else '❌'}")
         
         if not date:
             date = datetime.now().strftime('%Y-%m-%d')
@@ -222,7 +408,7 @@ class EconomicCalendar:
         
         # Send high impact events first
         if high_impact_events:
-            print(f"📤 Sending {len(high_impact_events)} high impact events...")
+            logger.info(f"📤 Sending {len(high_impact_events)} high impact events...")
             high_impact_msg = self.format_telegram_message(
                 high_impact_events, 
                 f"🚨 High Impact Events - {date}"
@@ -232,20 +418,37 @@ class EconomicCalendar:
             time.sleep(1)  # Avoid rate limiting
         
         # Send summary of all events
-        print(f"📤 Sending summary of {len(all_events)} total events...")
+        logger.info(f"📤 Sending summary of {len(all_events)} total events...")
         summary_msg = f"📊 <b>Economic Calendar Summary - {date}</b>\n\n"
         summary_msg += f"📈 Total Events: {len(all_events)}\n"
         summary_msg += f"🔴 High Impact: {len(high_impact_events)}\n"
         summary_msg += f"🟡 Medium Impact: {len([e for e in all_events if e['impact'] == 'Medium'])}\n"
-        summary_msg += f"🟢 Low Impact: {len([e for e in all_events if e['impact'] == 'Low'])}\n\n"
+        summary_msg += f"🟢 Low Impact: {len([e for e in all_events if e['impact'] == 'Low'])}\n"
+
+        # Add sentiment counts
+        sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
+        for event in all_events:
+            sentiment = event.get('sentiment', 'neutral')
+            sentiment_counts[sentiment] += 1
+        
+        summary_msg += f"😊 Positive Sentiment: {sentiment_counts['positive']}\n"
+        summary_msg += f"😰 Negative Sentiment: {sentiment_counts['negative']}\n"
+        summary_msg += f"😐 Neutral Sentiment: {sentiment_counts['neutral']}\n\n"
+        
+        # Add API status - only DeepSeek or fallback
+        if self.deepseek_client:
+            api_status = "DeepSeek API"
+        elif self.fallback_sentiment:
+            api_status = f"Local ({self.fallback_sentiment.title()})"
+        else:
+            api_status = "None"
+        
+        summary_msg += f"🤖 Sentiment Analysis: {api_status}\n\n"
         
         # Add top 5 events, prioritized by impact then time
         if all_events:
             summary_msg += "<b>Top Events (Prioritized):</b>\n"
-            # Define impact order for sorting
             impact_order = {'High': 0, 'Medium': 1, 'Low': 2, 'N/A': 3}
-            
-            # Sort events: by impact (High first), then by time
             sorted_top_events = sorted(
                 all_events, 
                 key=lambda x: (impact_order.get(x['impact'], 3), x['time'])
@@ -253,7 +456,9 @@ class EconomicCalendar:
             
             for i, event in enumerate(sorted_top_events[:5], 1):
                 impact_emoji = "🔴" if event['impact'] == 'High' else "🟡" if event['impact'] == 'Medium' else "🟢"
-                summary_msg += f"{i}. {impact_emoji} {event['time']} | {event['country']} - {event['event']}\n"
+                sentiment = event.get('sentiment', 'neutral')
+                sentiment_emoji = "😊" if sentiment == 'positive' else "😰" if sentiment == 'negative' else "😐"
+                summary_msg += f"{i}. {impact_emoji} {sentiment_emoji} {event['time']} | {event['country']} - {event['event']}\n"
         
         if not self.send_to_telegram(summary_msg):
             success = False
