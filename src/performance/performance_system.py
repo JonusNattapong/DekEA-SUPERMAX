@@ -17,9 +17,9 @@ from src.utils.price_utils import fetch_gold_price_data
 from src.utils.risk_utils import calculate_risk_metrics
 
 # Import ระบบ Performance Tracking
-from src.utils.performance_tracker import PerformanceTracker, TradeRecord
-from src.utils.trading_monitor import TradingMonitor, integrate_with_algorithm_manager
-from src.utils.performance_reporter import EnhancedTradingMonitor, create_enhanced_monitor
+from src.performance.performance_tracker import PerformanceTracker, TradeRecord
+from src.performance.performance_trading_monitor import TradingMonitor, integrate_with_algorithm_manager
+from src.performance.performance_reporter import EnhancedTradingMonitor, create_enhanced_monitor
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

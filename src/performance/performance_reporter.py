@@ -9,8 +9,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import logging
-from src.utils.performance_tracker import PerformanceTracker, PeriodStats
-from src.utils.trading_monitor import TradingMonitor
+from src.performance.performance_tracker import PerformanceTracker, PeriodStats
+from src.performance.performance_trading_monitor import TradingMonitor
 from src.utils.telegram_utils import send_message_to_telegram
 
 # Setup logging

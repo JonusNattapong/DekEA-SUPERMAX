@@ -7,7 +7,7 @@ import uuid
 import logging
 from datetime import datetime
 from typing import Dict, Optional, Any
-from src.utils.performance_tracker import PerformanceTracker, TradeRecord
+from src.performance.performance_tracker import PerformanceTracker, TradeRecord
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
