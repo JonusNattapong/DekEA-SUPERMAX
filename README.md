@@ -481,7 +481,6 @@ print(f"   💰 Total Return: {results['total_return']:.2f}%")
 - **🌐 API Integration** - requests, aiohttp
 - **📱 Telegram Bot** - python-telegram-bot
 - **📈 Technical Analysis** - TA-Lib, pandas-ta
-- **💾 Data Storage** - JSON, CSV สำหรับข้อมูลเทรด
 
 ---
 
@@ -544,7 +543,7 @@ SOFTWARE.
 
 **[⭐ Star this Repository](https://github.com/yourusername/DekTradingSignal)** • **[🐛 Report Issues](https://github.com/yourusername/DekTradingSignal/issues)** • **[💡 Feature Requests](https://github.com/yourusername/DekTradingSignal/discussions)**
 
-*Made with ❤️ by the DekTradingSignal Team*
+*Made with ❤️ by the zombitx64 Team*
 
 **Happy Trading! 📈💰**
 
