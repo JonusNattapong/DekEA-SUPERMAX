@@ -4,10 +4,10 @@ from datetime import datetime
 import time
 from dotenv import load_dotenv
 
-from src.gold_analysis import generate_gold_summary, format_gold_report
-from src.telegram_utils import send_telegram_alert
-from src.news_filter import should_avoid_trading, format_news_report
-from src.sentiment_tracker import get_sentiment_trend, format_sentiment_report
+from src.analysis.gold_analysis import generate_gold_summary, format_gold_report
+from src.utils.telegram_utils import send_telegram_alert
+from src.filter.news_filter import should_avoid_trading, format_news_report
+from src.tracker.sentiment_tracker import get_sentiment_trend, format_sentiment_report
 
 # Load environment variables
 load_dotenv()
