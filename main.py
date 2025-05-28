@@ -3,6 +3,12 @@ import os
 import requests
 from dotenv import load_dotenv
 import logging
+import sys
+
+# Ensure UTF-8 output for Windows terminals
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # Load environment variables
 load_dotenv()
