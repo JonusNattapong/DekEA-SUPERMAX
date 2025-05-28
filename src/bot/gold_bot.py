@@ -100,7 +100,7 @@ def run_daily_report():
 
 def main():
     """ฟังก์ชันหลักสำหรับรันบอทวิเคราะห์ทองคำ"""
-    logger.info("เริ่มต้นระบบวิเคราะห์ทองคำ DekTradingSignal Gold Bot")
+    logger.info("เริ่มต้นระบบวิเคราะห์ทองคำ DekEA-SUPERMAX Gold Bot")
     
     # ส่งรายงานครั้งแรกเมื่อเริ่มระบบ
     send_gold_report()
