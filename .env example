@@ -1,0 +1,9 @@
+TELEGRAM_BOT_TOKEN=api_your_key
+TELEGRAM_CHAT_ID=api_your_key
+FINNHUB_API_KEY=api_your_key
+GOLDAPI_KEY=api_your_key
+ALPHA_VANTAGE_KEY=api_your_key
+TWELVE_DATA_KEY=api_your_key
+FMP_API_KEY=api_your_key
+MISTRAL_API_KEY=api_your_key
+DEEPSEEK_API_KEY=api_your_key
