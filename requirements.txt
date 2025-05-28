@@ -1,6 +1,14 @@
 requests
 python-dotenv
 pandas
+ta
+scikit-learn
+xgboost
+lightgbm
+catboost
+prophet
+pytorch-tabnet
+tensorflow
 numpy
 yfinance
 matplotlib
@@ -10,5 +18,7 @@ tqdm
 beautifulsoup4
 transformers
 torch
+mistralai
+openai
 # If you chose TensorFlow instead of PyTorch for transformers, use:
 # tensorflow
